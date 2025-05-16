@@ -1,0 +1,128 @@
+
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, maximum-scale=3.0" />
+  <title>產品訂購通知</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 px-4 py-4">
+  <header class="mb-4 text-center">
+    <h1 class="text-2xl font-bold text-blue-600">產品訂購通知</h1>
+    <p class="text-gray-600 text-sm">請填寫數量與您的電子郵件，系統將自動寄送清單給 Abowbow。</p>
+  </header>
+  <div class="mb-4">
+    <input id="email-input" type="email" placeholder="您的Email: example@domain.com"
+      class="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400" />
+  </div>
+  <div class="text-center mb-4">
+    <button id="switch-view-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">
+      🔁 切換顯示模式（目前：<span id="mode-label">Auto</span>）
+    </button>
+  </div>
+  <div id="table-container"></div>
+  <div class="text-center mt-6">
+    <p id="total-price" class="text-lg font-semibold mb-4">總金額: NT$0</p>
+    <button id="send-btn"
+      class="px-6 py-2 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+      送出表單
+    </button>
+  </div>
+  <script>
+    emailjs.init({ publicKey: 'G1JY1R3GLAQmEyWLA' });
+    let viewMode = 'auto';
+    let globalData = [];
+    async function loadWorkbook(url) {
+      const res = await fetch(url);
+      const buf = await res.arrayBuffer();
+      return XLSX.read(new Uint8Array(buf), { type: 'array' });
+    }
+    function preprocess(sheet) {
+      const arr = XLSX.utils.sheet_to_json(sheet, { raw: true, defval: null });
+      return arr.map(row => {
+        const urls = String(row['其他照片'] || '').split('\n').map(u => u.trim()).filter(Boolean);
+        return { row, photoUrls: urls };
+      });
+    }
+    function updateTotal() {
+      let total = 0;
+      const inputs = document.querySelectorAll('[data-qty]');
+      inputs.forEach(input => {
+        const price = parseFloat(input.dataset.price) || 0;
+        const qty = parseInt(input.value) || 0;
+        total += price * qty;
+      });
+      document.getElementById('total-price').textContent = '總金額: NT$' + total.toLocaleString();
+    }
+    function generateHtmlTable(data) {
+      let html = '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;width:100%;table-layout:fixed;">';
+      html += '<tr style="background:#f3f4f6;">';
+      ['商品照片', '商品名稱', '商品顏色', '商品大小', '原始連結', '數量'].forEach(h => {
+        html += `<th style="padding:8px;text-align:left;border-bottom:1px solid #d1d5db;">${h}</th>`;
+      });
+      html += '</tr>';
+      data.forEach(item => {
+        html += '<tr style="background:#fff;">';
+        html += `<td><img src="${item.photoUrls[0] || ''}" style="width:200px;height:200px;object-fit:contain;background:#fff;border-radius:4px;"/></td>`;
+        html += `<td>${item.row['商品名稱']}</td>`;
+        html += `<td>${item.row['商品顏色'] || ''}</td>`;
+        html += `<td>${item.selectedSize || '無尺寸'}</td>`;
+        html += `<td><a href="${item.row['原始連結'] || ''}" target="_blank">商品連結</a></td>`;
+        html += `<td>${item.quantity || 0}</td>`;
+        html += '</tr>';
+      });
+      html += '</table>';
+      return html;
+    }
+    function setupEmail(data) {
+      document.getElementById('send-btn').onclick = async () => {
+        const items = [...document.querySelectorAll('[data-qty]')];
+        data.forEach((item, i) => {
+          const el = items[i];
+          item.quantity = parseInt(el.value) || 0;
+          const select = el.closest('tr, div').querySelector('select');
+          item.selectedSize = select ? select.value : '無尺寸';
+        });
+        const sendData = data.filter(it => it.quantity > 0);
+        const email = document.getElementById('email-input').value.trim();
+        if (!sendData.length) return alert('請至少選一項商品');
+        if (!email) return alert('請輸入 Email');
+        const htmlTable = generateHtmlTable(sendData);
+        await emailjs.send('service_1ftp10h', 'template_ltwu96f', {
+          customer_email: email,
+          html_table: htmlTable
+        });
+        alert('已寄出！');
+      };
+    }
+    function renderTable(data) {
+      const container = document.getElementById('table-container');
+      container.innerHTML = '';
+      const isMobile = (viewMode === 'mobile') || (viewMode === 'auto' && window.innerWidth < 640);
+      // render cards or tables here (omitted for brevity)
+    }
+    (async () => {
+      const wb = await loadWorkbook('basic_export.xlsx');
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const data = preprocess(sheet);
+      globalData = data;
+      renderTable(globalData);
+      setupEmail(globalData);
+      const btn = document.getElementById('switch-view-btn');
+      const label = document.getElementById('mode-label');
+      if (btn && label) {
+        btn.addEventListener('click', () => {
+          if (viewMode === 'auto') viewMode = 'mobile';
+          else if (viewMode === 'mobile') viewMode = 'desktop';
+          else viewMode = 'auto';
+          label.textContent = viewMode.charAt(0).toUpperCase() + viewMode.slice(1);
+          renderTable(globalData);
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
